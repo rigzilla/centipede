@@ -1,0 +1,346 @@
+from maya import cmds
+from functools import partial
+import maya.mel as mel
+
+
+# this is an animation tool for a centipede
+# it only works properly with a specific rig (centipede.mb) which is included in the downlad folder
+# for questions regarding the rig or this tool, feel free to send me a mail at mail@rigzilla.co.uk
+# author: Stefan Wezel, May 2015
+# for feedback or questions, contact mail@rigzilla.co.uk
+# special thanks to: Eduard Zell, Arash Hosseini, Jere Meister and my mom
+# for further information on the script, make sure to use pythons help function (-> help(Centipede_UI)) or read the docstrings
+
+
+
+class Centipede_UI():
+		"""
+		in order for this script to work properly, make sure to use it with the file centipede.mb
+		to run this script, either just execute it in mayas script editor
+		or save it to your script folder (default is: C:\Users\Student\Documents\maya\(your version)\scripts)
+		and then run following listConnections
+		
+		import centipede_UI
+		reload(centipede_UI)
+		centipede_UI.Centipede_UI()
+
+		for the UI to look even cooler, save the included icon to your icons folder
+		(default is:  C:\Users\Student\Documents\maya\(your version)\prefs\icons)
+		have fun with the rig and animation tool, and feel free to send me feedback at mail@rigzilla.co.uk ;)
+		special thanks to: Eduard Zell, Arash Hosseini, Jere Meister and my mom
+		"""
+
+		def __init__ (self):
+				if cmds.window("centipedeUI", exists = True):
+						cmds.deleteUI("centipedeUI")
+
+				#create widgets
+				self.widgets = {}
+ 
+				self.widgets["window"] = cmds.window("centipedeUI", title = "Centipede UI", w = 400, h = 310, mnb = False, mxb = False, bgc = (0.22,0.22,0.22))
+ 
+				#create the formlayout
+				self.widgets["formLayout"] = cmds.formLayout(w = 400, h = 310)
+
+				#set image path
+				self.imagePath = cmds.internalVar(upd = True) + "icons/centipedeLogo.png"
+				# self.image = cmds.image(image = self.imagePath)
+				self.widgets["image"] = cmds.image(w = 410, h = 100, image = self.imagePath)
+
+
+
+				#create the buttons
+				#create the textfield
+				self.widgets["loadedMoPath"] = cmds.textFieldButtonGrp(label = "Motion Path", text = "Select a Curve", buttonLabel = "Load Motion Path", buttonCommand = self.load)
+				#create the attach to mopath button
+				self.widgets["attachButton"] = cmds.button(label = "Attach Centipede to Motion Path", w = 200, h = 30, c = self.attach_centipede)
+				#create slider
+				# callbacktest = cmds.floatSliderGrp(label = "drag callback", field = True, value = 0, min = 0, max = 10, dc = slider_callback)
+				self.widgets["uValueSlider"] = cmds.floatSliderGrp(label = "Crawl ", field = True, value = 0, min = 0, max = 100, adj = 20, dc = self.crawl)
+				#key button
+				self.widgets["keyButton"] = cmds.button(label = "Key", w = 38, bgc = (.99, .25, .25), c = self.key_crawl) 
+				#select button
+				self.widgets["selectMoPath"] = cmds.button(label = "Select Motion Path", c = self.select_mopath)
+				#switch spine button
+				self.widgets["switchSpine"] = cmds.button(label = "Switch Spine", w = 80, h = 30, c = self.switch_spine)
+				#switch legs button
+				self.widgets["switchLegs"] = cmds.button(label = "Automatic Legs", w = 80, h = 30, c = self.switch_legs)
+				#detach button
+				self.widgets["detachButton"] = cmds.button(label = "Detach Centipede", w = 100, h = 30, c = self.detach_centipede)
+				#cancel button
+				self.widgets["cancelButton"] = cmds.button(label = "Cancel", h = 30, w = 60, c = self.close_window)
+
+
+
+
+ 
+				# #place buttons 
+				#place textfield
+				cmds.formLayout(self.widgets["formLayout"], edit = True, attachForm = [(self.widgets["loadedMoPath"], 'top', 10 + 100), (self.widgets["loadedMoPath"], 'left', -73)])
+				#place attach button
+				cmds.formLayout(self.widgets["formLayout"], edit = True, attachForm = [(self.widgets["attachButton"], 'top', 60 + 100), (self.widgets["attachButton"], 'left', 100)])
+				#place slider
+				cmds.formLayout(self.widgets["formLayout"], edit = True, attachForm = [(self.widgets["uValueSlider"], 'top', 110 + 100), (self.widgets["uValueSlider"], 'left', -100)])
+				#place key button
+				cmds.formLayout(self.widgets["formLayout"], edit = True, attachForm = [(self.widgets["keyButton"], 'top', 110 + 100), (self.widgets["keyButton"], 'left', 312)])
+				#place select button
+				cmds.formLayout(self.widgets["formLayout"], edit = True, attachForm = [(self.widgets["selectMoPath"], 'top', 140 + 100), (self.widgets["selectMoPath"], 'left', 10)])
+				#place switch spine button
+				cmds.formLayout(self.widgets["formLayout"], edit = True, attachForm = [(self.widgets["switchSpine"], 'top', 170 + 100), (self.widgets["switchSpine"], 'left', 10)])
+				#place switch legs button
+				cmds.formLayout(self.widgets["formLayout"], edit = True, attachForm = [(self.widgets["switchLegs"], 'top', 170 + 100), (self.widgets["switchLegs"], 'left', 95)])
+				#place detach button
+				cmds.formLayout(self.widgets["formLayout"], edit = True, attachForm = [(self.widgets["detachButton"], 'top', 170 + 100), (self.widgets["detachButton"], 'left', 220)])
+				#place cancel button
+				cmds.formLayout(self.widgets["formLayout"], edit = True, attachForm = [(self.widgets["cancelButton"], 'top', 170 + 100), (self.widgets["cancelButton"], 'left', 330)])
+
+				#place image
+				cmds.formLayout(self.widgets["formLayout"], edit = True, attachForm = [(self.widgets["image"], 'top', 0 ), (self.widgets["image"], 'left', 0) ])
+
+				cmds.showWindow(self.widgets["window"])
+				cmds.window(self.widgets["window"], edit = True, w= 400, h = 310)
+
+
+
+
+
+		#check if loaded object is a curve
+		def load(self, *args):
+			"""
+			checks if exactly one valid object is chosen as Motion Path
+			and updates the text field accordingly
+			"""
+			
+			self.selected_objects = cmds.ls(sl = True)
+			
+			if len(self.selected_objects) > 1:
+				cmds.warning("Please select only one Curve")
+				cmds.textFieldButtonGrp(self.widgets["loadedMoPath"], e = True, text = "Please select only one Object!")
+			
+			elif len(self.selected_objects) < 1:
+				cmds.warning("Make sure to have an object selected")
+				cmds.textFieldButtonGrp(self.widgets["loadedMoPath"], e = True, text = "Make sure to have an object selected!")
+
+			
+			else:
+				self.moPathCurve = self.selected_objects[0]
+				shape = cmds.listRelatives(self.moPathCurve, s = True)
+				objectType = cmds.objectType(shape)	
+
+				if objectType == "nurbsCurve":
+					cmds.textFieldButtonGrp(self.widgets["loadedMoPath"], e = True, text = self.moPathCurve)
+					return self.moPathCurve
+
+				else:
+					cmds.warning("Please make sure to select a Nurbs Curve as Motion Path!")
+					cmds.textFieldButtonGrp(self.widgets["loadedMoPath"], e = True, text = "Make sure the selected object is a Nurbs Curve!")
+
+
+	
+
+
+		def _connect(self, currentCurve, newCurve, connected, *args):
+
+
+			# first disconnect old input
+			if connected == True:
+				cmds.disconnectAttr(currentCurve + ".worldSpace[0]", "motionPath1.geometryPath")
+				cmds.disconnectAttr(currentCurve + ".worldSpace[0]", "arcLengthDimensionShape1.nurbsGeometry")
+				transform = cmds.listRelatives(currentCurve, parent = True)
+				cmds.delete(currentCurve)
+				cmds.delete(transform)
+
+			#then connect to selected motion path
+			cmds.connectAttr(newCurve + ".worldSpace[0]", "motionPath1.geometryPath")
+			cmds.connectAttr(newCurve + ".worldSpace[0]", "arcLengthDimensionShape1.nurbsGeometry")
+
+
+
+#seems to work 
+		def attach_centipede(self, *args):
+			"""
+			uses the selected curve as motion path and attaches the centipede to import
+			"""
+
+			if self.moPathCurve == None:
+				cmds.error("no Motion Path selected")
+			
+			else:
+
+				sliderValue = cmds.floatSliderGrp(self.widgets["uValueSlider"], q = True, value = True)
+				
+				if sliderValue != 0.0:
+					cmds.floatSliderGrp(self.widgets["uValueSlider"], e = True, value = 0.0)
+
+
+				#copy curve with 2.135 offset
+				self.offsetCurve = cmds.duplicate(self.moPathCurve, n = self.moPathCurve + "_offset")[0]
+				cmds.setAttr(self.offsetCurve + ".translateY", 2.135) #query that value later
+				cmds.hide(self.offsetCurve)
+
+
+				
+
+
+				# try:
+				self.inputCurve = cmds.listConnections("motionPath1", source = True, destination = False, shapes = True)
+				if self.inputCurve == None:
+					self._connect(self, self.offsetCurve, connected = False)
+					cmds.setAttr("motionPath1.uValue", 0)
+				
+				else:
+					self._connect(self.inputCurve[0], self.offsetCurve, connected = True)
+					cmds.setAttr("motionPath1.uValue", 0)
+
+
+
+
+		def crawl(self, *args):
+			"""
+			lets the centipede crawl along the motion path. It's responding to the user input
+			from the slider in the UI
+			"""
+			cmds.undoInfo(swf = False)
+			try:
+
+
+				crawlValue = cmds.floatSliderGrp(self.widgets["uValueSlider"], q = True, value = True)
+				cmds.setAttr("motionPath1.uValue", crawlValue/20)
+
+
+			except: pass
+
+			cmds.undoInfo(swf = True)
+
+
+		def key_crawl(self, * args):
+			"""
+			keyframes the uValue if centipede is attached to a motion path
+			"""
+			try:
+				cmds.setKeyframe("motionPath1.uValue")
+
+			except:	raise TypeError("Centipede is can only be keyed when attached to a Motion Path!")
+
+
+
+		def select_mopath(self, *args):
+			try:
+				cmds.select("motionPath1")
+
+			except: raise TypeError("Centipede is currently not attached to a Motion Path")
+
+
+
+
+
+
+
+		def switch_spine(self, *args):
+			"""
+			switches spine from current state to other
+			"""
+			#query current value
+			value = cmds.getAttr("spine_blend_cntrl.spine_blend")
+
+			if value  == 0.0:
+				cmds.setAttr("spine_blend_cntrl.spine_blend", 1)
+				cmds.button(self.widgets["switchSpine"], e = True, label = "Automatic Spine")
+
+			else:
+				cmds.setAttr("spine_blend_cntrl.spine_blend", 0)
+				cmds.button(self.widgets["switchSpine"], e = True, label = "Manual Spine")
+
+
+
+
+
+
+
+		def switch_legs(self, *args):
+			"""
+			switches legs from curent state to other
+			"""
+			ikCntrl_lt = [u'leg_cntrl_IK_lt18', u'leg_cntrl_IK_lt19', u'leg_cntrl_IK_lt20', u'leg_cntrl_IK_lt21', u'leg_cntrl_IK_lt22', u'leg_cntrl_IK_lt23', u'leg_cntrl_IK_lt24', u'leg_cntrl_IK_lt25', u'leg_cntrl_IK_lt26', u'leg_cntrl_IK_lt27', u'leg_cntrl_IK_lt28', u'leg_cntrl_IK_lt29', u'leg_cntrl_IK_lt30', u'leg_cntrl_IK_lt31', u'leg_cntrl_IK_lt32', u'leg_cntrl_IK_lt33', u'leg_cntrl_IK_lt34']
+			ikCntrl_rt = [ u'leg_cntrl_IK_rt36', u'leg_cntrl_IK_rt37', u'leg_cntrl_IK_rt38', u'leg_cntrl_IK_rt39', u'leg_cntrl_IK_rt40', u'leg_cntrl_IK_rt41', u'leg_cntrl_IK_rt42', u'leg_cntrl_IK_rt43', u'leg_cntrl_IK_rt44', u'leg_cntrl_IK_rt45', u'leg_cntrl_IK_rt46', u'leg_cntrl_IK_rt47', u'leg_cntrl_IK_rt48', u'leg_cntrl_IK_rt49', u'leg_cntrl_IK_rt50', u'leg_cntrl_IK_rt51', u'leg_cntrl_IK_rt52'] # 
+
+
+
+			def _blend_legs(ikCntrl, v):
+				for i in ikCntrl:
+					cmds.setAttr(i + ".blend", v)
+			#query current value
+
+
+			label = cmds.button(self.widgets["switchLegs"], q = True, label = True)
+			if label == "Automatic Legs":
+				_blend_legs(ikCntrl_lt, 1)
+
+				cmds.setAttr("leg_cntrl_IK_lt_front.blend", 0)
+				cmds.setAttr("leg_cntrl_IK_lt_rear.blend", 0)
+				_blend_legs(ikCntrl_rt, 1)
+				cmds.setAttr("leg_cntrl_IK_rt_front.blend", 0)
+				cmds.setAttr("leg_cntrl_IK_rt_rear.blend", 0)
+
+				cmds.button(self.widgets["switchLegs"], e = True, label = "Manual Legs")
+
+			else:
+
+				_blend_legs(ikCntrl_lt, 0)
+				cmds.setAttr("leg_cntrl_IK_lt_front.blend", 1)
+				cmds.setAttr("leg_cntrl_IK_lt_rear.blend", 1)
+				
+
+				_blend_legs(ikCntrl_rt, 0)
+				cmds.setAttr("leg_cntrl_IK_rt_front.blend", 1)
+				cmds.setAttr("leg_cntrl_IK_rt_rear.blend", 1)
+
+				cmds.button(self.widgets["switchLegs"], e = True, label = "Automatic Legs")
+
+
+
+
+
+
+		def detach_centipede(self, *args):
+			"""
+			detaches the centipede from the motion path and resets the centipedes transformations
+			"""
+			#disconnect from current curve
+			cmds.disconnectAttr(self.offsetCurve + ".worldSpace[0]", "motionPath1.geometryPath")
+			cmds.disconnectAttr(self.offsetCurve + ".worldSpace[0]", "arcLengthDimensionShape1.nurbsGeometry")
+
+
+			#delete offset curve
+			cmds.delete(self.offsetCurve)
+
+
+			cmds.floatSliderGrp(self.widgets["uValueSlider"], e = True, value = 0.0)
+			cmds.setAttr("motionPath1.uValue", 0)
+			cmds.warning("Centipede detached from Motion Path. All keyframes were deleted")
+
+			#delete moPath, moPathCurve variable after detaching
+			# self.moPath = None
+			self.moPathCurve = None
+			cmds.textFieldButtonGrp(self.widgets["loadedMoPath"], e = True, text = "Select a Curve")
+
+
+
+
+		def close_window(self, *args):
+			"""
+			closes the window and deletes every values stored in there
+			"""
+			cmds.deleteUI(self.widgets["window"])
+
+
+
+
+
+
+
+if __name__ == "__main__":
+	Centipede_UI()
+
+
+
